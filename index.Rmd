@@ -1,30 +1,116 @@
 ---
 title: "Practical Machine Learning Course Project"
 author: "Lee Davies"
-date: "October 17, 2016"
+date: "October 27, 2016"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+### Load the required libraries
+``` {r libraries, warning = FALSE}
+library(caret)
+library(randomForest)
+```
+### Synopsis
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
 
-## R Markdown
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Download the data files and load the data
 
-```{r cars}
-summary(cars)
+```{r filedownload, warning = FALSE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+
+#create the directory if it does not exists
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+
+#download the training file
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+
+#download the test file
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+
+trainSet <- read.csv("./data/pml-training.csv",header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+finaltestSet <- read.csv("./data/pml-testing.csv", header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+
+dim(trainSet)
+```
+The training set has the 19622 rows and 160 columns, so we will need to reduce the number of columns before we can generate the model.
+
+## Splitting the training set
+```{r}
+set.seed(8872)
+
+```
+As there are a large number of features in the data set, we will reduce this number by removing columns which have missing values.  
+
+```{r pressure}
+# remove any variables that are near zero
+nzv <- nearZeroVar(trainSet)
+trainSet <- trainSet[, -nzv]
+finaltestSet <- finaltestSet[, -nzv]
+
+# still have lots of variables which appear to be mostly NA
+# find any variable where the mean NA count is over 95%
+mostlyNA <- sapply(trainSet, function(x) mean(is.na(x))) > 0.95
+trainSet <- trainSet[, mostlyNA==F]
+finaltestSet <- finaltestSet[, mostlyNA==F]
+
+# some fields are not applicable to the model so going to remove these
+removeIndex <- grep("X|timestamp|user_name|new_window|num_window", names(trainSet))
+trainSet <- trainSet[, -removeIndex]
+finaltestSet <- finaltestSet[, -removeIndex]
 ```
 
-## Including Plots
+To validate the model, we will split the training set into two, the first set will be used to train the model and the second set to validate the quality of the results from the training.
 
-You can also embed plots, for example:
+As I have 19622 results I am going to use 60% of the training set to generate the model and then the remaining 40% to test the model.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+# split the training set so I can validate the model before I run the test set 
+dataPartition <- createDataPartition(y=trainSet$classe, p=0.6, list=FALSE)
+trainSet <-trainSet[dataPartition, ]
+validationSet<- trainSet[-dataPartition, ]
+
+str(trainSet)
+
+```
+### Train the model
+We will use a Random forest method to create the model from the training set. The model will use all variables from the database set as the model only contains features that would be impactful to the model.
+```{r cache=TRUE}
+# train the model using the train set
+# using random forest
+randomForest <- train(classe ~., data = trainSet, method="rf", ntree=500, allowParallel = TRUE)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### Validation the model
+Following the model generation we will validate the model using the validation set created earlier from the training set.
+```{r}
+# lets validate the model using the validation set and compare what 
+# we predict to the actual value.
+predictTrainingSet <- predict(randomForest, validationSet)
+confusionMatrix(predictTrainingSet, validationSet$classe )
+```
+As show by the Overall Statistics the accuracy is high enough that we can now use the model to predict the classe for the test set.
+
+```{r}
+# Now lets predict the values for the test set.
+predict(randomForest, finaltestSet)
+```
+### References
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+
+Read more: http://groupware.les.inf.puc-rio.br/har#sbia_paper_section#ixzz4OPqiOPlp
